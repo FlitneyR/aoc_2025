@@ -1,0 +1,14 @@
+[package]
+name = "aoc_2025_challenges"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+part1 = []
+part2 = []
+verbose = []
+
+[dependencies]
+regex = "1.12.2"
+aoc_2025_common = { path = "../common" }
+aoc_2025_proc_macros = { path="../proc_macros" }
