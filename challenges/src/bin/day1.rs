@@ -68,10 +68,9 @@ fn main() {
     let mut dial = DialState::new();
     let regex = regex::Regex::new("(?<direction>[LR])(?<count>[0-9]+)").unwrap();
 
-    get_input().unwrap().lines()
-        .for_each(|line| {
-            let cmd: Command = line.as_str().iter_by_regex(&regex).next().unwrap();
-
+    get_input().unwrap()
+        .iter_by_regex(&regex)
+        .for_each(|cmd: Command| {
             #[cfg(feature = "part1")]
             dial.rotate_part1(&mut answer_accumulator, &cmd);
 

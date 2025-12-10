@@ -55,7 +55,6 @@ impl IDRange {
 fn main() {
     let regex = regex::Regex::new("(?<start>[0-9]+)-(?<end>[0-9]+)").unwrap();
     let total: u64 = aoc_2025_common::get_input().unwrap()
-        .collect_to_string().as_str()
         .iter_by_regex(&regex)
         .map(|range: IDRange| range.sum_invalid_ids())
         .sum();

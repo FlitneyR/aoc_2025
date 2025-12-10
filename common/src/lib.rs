@@ -1,6 +1,6 @@
 use std::env::args;
 use std::fs::File;
-use std::io::{Read, stdin};
+use std::io::{Read, Stdin, stdin};
 
 #[derive(Clone, Copy, Debug)]
 pub enum FromRegexCapturesError {
@@ -16,23 +16,46 @@ pub trait FromRegexCaptures
     fn from_regex_captures(captures: &regex::Captures) -> Result<Self, FromRegexCapturesError>;
 }
 
-pub struct ParseByRegexIter<'a, T: FromRegexCaptures> {
+pub struct RegexStringIterator<'a, 'b, T: FromRegexCaptures> {
     str: &'a str,
-    regex: &'a regex::Regex,
-    _phantom_t: std::marker::PhantomData<T>
+    regex: &'b regex::Regex,
+    _phantom_t: std::marker::PhantomData<T>,
 }
 
-pub trait ParseByRegex {
-    fn iter_by_regex<'a, T: FromRegexCaptures>(&'a self, regex: &'a regex::Regex) -> ParseByRegexIter<'a, T>;
+pub trait IterByRegex<'a> {
+    fn iter_by_regex<T: FromRegexCaptures>(self, regex: &'a regex::Regex) -> impl Iterator<Item = T>;
 }
 
-impl ParseByRegex for &str {
-    fn iter_by_regex<'a, T: FromRegexCaptures>(&'a self, regex: &'a regex::Regex) -> ParseByRegexIter<'a, T> {
-        ParseByRegexIter { str: self, regex, _phantom_t: Default::default() }
+impl<'a, 'b> IterByRegex<'a> for &'b str {
+    fn iter_by_regex<T: FromRegexCaptures>(self, regex: &'a regex::Regex) -> impl Iterator<Item = T> {
+        RegexStringIterator { str: self, regex, _phantom_t: Default::default() }
     }
 }
 
-impl<'a, T> Iterator for ParseByRegexIter<'a, T>
+impl<'a, 'b> IterByRegex<'a> for &'b String {
+    fn iter_by_regex<T: FromRegexCaptures>(self, regex: &'a regex::Regex) -> impl Iterator<Item = T> {
+        RegexStringIterator { str: self.as_str(), regex, _phantom_t: Default::default() }
+    }
+}
+
+impl<'a> IterByRegex<'a> for Stdin {
+    fn iter_by_regex<T: FromRegexCaptures>(self, regex: &'a regex::Regex) -> impl Iterator<Item = T> {
+        self.lines()
+            .flatten()
+            .map(|line| line.iter_by_regex(regex).collect::<Vec<T>>())
+            .flatten()
+    }
+}
+
+impl<'a, 'b> IterByRegex<'a> for &'b mut Input {
+    fn iter_by_regex<T: FromRegexCaptures>(self, regex: &'a regex::Regex) -> impl Iterator<Item = T> {
+        self.lines()
+            .map(|line| line.iter_by_regex(regex).collect::<Vec<T>>())
+            .flatten()
+    }
+}
+
+impl<'a, 'b, T> Iterator for RegexStringIterator<'a, 'b, T>
     where T: FromRegexCaptures
 {
     type Item = T;
@@ -53,7 +76,7 @@ pub enum GetInputError {
 
 pub enum Input {
     Stdin,
-    File {
+    String {
         str: String,
         lines_read: usize,
     }
@@ -64,17 +87,19 @@ pub fn get_input() -> Result<Input, GetInputError> {
         let mut buffer = String::new();
         let mut file = File::open(&path).map_err(|_| GetInputError::FileDoesNotExist { path })?;
         file.read_to_string(&mut buffer).map_err(|_| GetInputError::FailedToReadFile)?;
-        Ok(Input::File{ str: buffer, lines_read: 0 })
+        Ok(Input::String{ str: buffer, lines_read: 0 })
     } else {
         Ok(Input::Stdin)
     }
 }
 
 impl Input {
+    pub fn new(str: String) -> Self { Self::String { str, lines_read: 0 } }
+
     pub fn lines<'a>(&'a mut self) -> InputLines<'a> {
         match self {
             Input::Stdin => InputLines::Stdin(stdin().lines()),
-            Input::File{ str, lines_read } => InputLines::File {
+            Input::String{ str, lines_read } => InputLines::File {
                 iter: str.lines().skip(*lines_read),
                 lines_read,
             },
@@ -88,7 +113,7 @@ impl Input {
                 stdin().read_to_string(&mut buffer).expect("File io error while reading input");
                 buffer
             },
-            Input::File { str, lines_read } => {
+            Input::String { str, lines_read } => {
                 str.lines().skip(lines_read)
                     .map(|line| format!("{line}\n"))
                     .collect()
