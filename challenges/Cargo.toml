@@ -7,6 +7,7 @@ edition = "2021"
 part1 = []
 part2 = []
 verbose = []
+timing = []
 
 [dependencies]
 regex = "1.12.2"

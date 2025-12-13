@@ -1,5 +1,5 @@
-use aoc_2025_common::{IterByRegex, get_input};
-use aoc_2025_proc_macros::FromRegexCaptures;
+use aoc_2025_common::*;
+use aoc_2025_proc_macros::*;
 use std::{cell::Cell, num::NonZeroUsize};
 
 #[allow(unused)] // used by part1, not by part2
@@ -82,7 +82,7 @@ fn main() {
     {
         // join up neighbours into circuits
         pairs.iter()
-            .take(1_000)
+            .take(Arguments::get_named("count").unwrap())
             .for_each(|(lhs, rhs)| JunctionBox::connect(lhs, rhs, &junction_boxes, &mut next_circuit_id));
 
         // count the junction boxes in each circuit

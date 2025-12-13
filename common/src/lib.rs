@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::env::args;
-use std::fs::File;
 use std::io::{Read, Stdin, stdin};
+use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug)]
 pub enum FromRegexCapturesError {
@@ -82,15 +83,53 @@ pub enum Input {
     }
 }
 
-pub fn get_input() -> Result<Input, GetInputError> {
-    if let Some(path) = args().skip(1).next() {
-        let mut buffer = String::new();
-        let mut file = File::open(&path).map_err(|_| GetInputError::FileDoesNotExist { path })?;
-        file.read_to_string(&mut buffer).map_err(|_| GetInputError::FailedToReadFile)?;
-        Ok(Input::String{ str: buffer, lines_read: 0 })
-    } else {
-        Ok(Input::Stdin)
+pub struct Arguments {
+    pub named: HashMap<String, String>,
+    pub unnamed: Vec<String>
+}
+
+static mut ARGUMENTS: Option<Arguments> = None;
+
+impl Arguments {
+    #[allow(static_mut_refs)]
+    fn get() -> &'static Self {
+        if unsafe { ARGUMENTS.is_none() } {
+            let mut result = Self { named: HashMap::new(), unnamed: Vec::new() };
+            let mut args = args().skip(1);
+            let named_arg_regex = regex::Regex::new("(?<key>.*)=(?<value>.*)").unwrap();
+            
+            while let Some(arg) = args.next() {
+                if let Some(named_arg) = named_arg_regex.captures(&arg) {
+                    let key = named_arg.name("key").unwrap().as_str().to_string();
+                    let value = named_arg.name("value").unwrap().as_str().to_string();
+                    result.named.insert(key, value);
+                } else {
+                    result.unnamed.push(arg);
+                }
+            }
+            
+            unsafe { ARGUMENTS = Some(result); }
+        }
+        
+        unsafe { ARGUMENTS.as_ref().unwrap() }
     }
+
+    pub fn get_named<T: FromStr>(name: &str) -> Option<T> {
+        Self::get().named.get(name)?.parse().ok()
+    }
+}
+
+pub fn get_input() -> Result<Input, GetInputError> {
+    // if let Some(path) = args().skip(1).next() {
+    //     let mut buffer = String::new();
+    //     let mut file = File::open(&path).map_err(|_| GetInputError::FileDoesNotExist { path })?;
+    //     file.read_to_string(&mut buffer).map_err(|_| GetInputError::FailedToReadFile)?;
+    //     Ok(Input::String{ str: buffer, lines_read: 0 })
+    // } else {
+    //     Ok(Input::Stdin)
+    // }
+
+    Ok(Input::Stdin)
 }
 
 impl Input {
@@ -143,3 +182,103 @@ impl<'a> Iterator for InputLines<'a> {
         }
     }
 }
+
+pub struct WrapAround<T: Clone, I: Iterator<Item = T>> {
+    buffer: Vec<Option<T>>,
+    index: isize,
+    iter: I,
+}
+
+pub trait WrapAroundAble<T: Clone> where Self: Iterator<Item = T> + Sized {
+    /// Creates an iterator that repeats the first `count` many items returned by this iterator
+    fn wrap_around(self, count: usize) -> WrapAround<T, Self> {
+        WrapAround { buffer: vec![None; count], index: 0, iter: self }
+    }
+}
+
+impl<T: Clone, I: Iterator<Item = T>> WrapAroundAble<T> for I {}
+
+impl<T: Clone, I: Iterator<Item = T>> Iterator for WrapAround<T, I> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter.next() {
+            Some(item) => {
+                if self.index < self.buffer.len() as isize {
+                    self.buffer[self.index as usize] = Some(item.clone());
+                    self.index += 1;
+                }
+                Some(item)
+            },
+            None => {
+                if self.index > 0 && self.index <= self.buffer.len() as isize {
+                    let mut result = None;
+                    let count = self.buffer.len();
+                    std::mem::swap(&mut self.buffer[count - self.index as usize], &mut result);
+                    self.index -= 1;
+                    result
+                } else {
+                    None
+                }
+            },
+        }
+    }
+}
+
+pub struct WindowIter<T: Clone, I: Iterator<Item = T>> {
+    buffer: Vec<T>,
+    window_size: usize,
+    iter: I,
+}
+
+impl<T: Clone, I: Iterator<Item = T>> Iterator for WindowIter<T, I> {
+    type Item = Vec<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.buffer.len() < self.window_size {
+            self.buffer.push(self.iter.next()?);
+        }
+
+        let result = Some(self.buffer.clone());
+        self.buffer.rotate_left(1);
+        self.buffer.pop();
+        result
+    }
+}
+
+pub trait WindowAble<T> where T: Clone, Self: Iterator<Item = T> + Sized {
+    /// Creates an iterator that outputs vectors containing `window_size` consecutive items returned by this iterator
+    fn windows(self, window_size: usize) -> WindowIter<T, Self> {
+        WindowIter { buffer: Vec::new(), window_size, iter: self }
+    }
+}
+
+impl<T: Clone, I: Iterator<Item = T> + Sized> WindowAble<T> for I {}
+
+pub struct ConcatIterator<T, First: Iterator<Item = T>, Second: Iterator<Item = T>> {
+    first: First,
+    second: Second,
+}
+
+impl<T, First: Iterator<Item = T>, Second: Iterator<Item = T>> Iterator for ConcatIterator<T, First, Second> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.first.next().or_else(|| self.second.next())
+    }
+}
+
+pub trait PrependIterator<T, I: Iterator<Item = T>> where Self: Iterator<Item = T> + Sized {
+    fn prepend(self, other: I) -> ConcatIterator<T, Self, I> {
+        ConcatIterator { first: self, second: other }
+    }
+}
+
+pub trait AppendIterator<T, I: Iterator<Item = T>> where Self: Iterator<Item = T> + Sized {
+    fn append(self, other: I) -> ConcatIterator<T, I, Self> {
+        ConcatIterator { first: other, second: self }
+    }
+}
+
+impl<T, First: Iterator<Item = T>, Second: Iterator<Item = T>> PrependIterator<T, Second> for First {}
+impl<T, First: Iterator<Item = T>, Second: Iterator<Item = T>> AppendIterator<T, First> for Second {}
