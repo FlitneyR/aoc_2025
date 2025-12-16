@@ -7,6 +7,7 @@ use std::str::FromStr;
 pub enum FromRegexCapturesError {
     MissingField(&'static str),
     FailedToParse(&'static str),
+    Malformed(&'static str),
     RegexDidntMatch,
 }
 
